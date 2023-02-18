@@ -54,7 +54,7 @@ double calcOrientation(const cv::Mat &img, size_t x, size_t y) {
 }
 
 template <typename T>
-std::vector<T> normolizeVetor(const std::vector<T> & v, T norm) {
+std::vector<T> normolizeVector(const std::vector<T> & v, T norm) {
     rassert(v.size() > 0, 23812738123982156);
     T sum = v.front();
     for(auto it = v.begin() + 1; it != v.end(); ++it) {
@@ -63,10 +63,41 @@ std::vector<T> normolizeVetor(const std::vector<T> & v, T norm) {
     T divider = sum / norm;
     std::vector<T> retV = v;
     for(auto it = retV.begin(); it != retV.end(); ++it) {
-        (*it) /= divider;
+        *it /= divider;
     }
     return retV;
 }
+
+void normolize(float v[], size_t size, float norm) {
+    rassert(size> 0, 23812738123982156);
+    float sum = 0;
+    for(size_t i = 0; i < size; ++i) {
+        sum += v[i];
+    }
+    float divider = sum / norm;
+    for(size_t i = 0; i < size; ++i) {
+        v[i] /= divider;
+    }
+}
+
+void smoothingBin(std::vector<float> & sum, size_t bin, float magnitude, size_t radius, size_t sum_size) {
+    // на расстоянии i от центра будем ставить коэффициент 2^(-2i), а потом всё нормализуем
+    std::vector<float> smoothingBins;
+    smoothingBins.resize(radius * 2 + 1);
+    smoothingBins[radius] = magnitude;
+    for(size_t sRad = 1; sRad < radius + 1; ++sRad) {
+        smoothingBins[radius - sRad] = magnitude * pow(2, -2.0 * static_cast<float>(sRad));
+        smoothingBins[radius + sRad] = magnitude * pow(2, -2.0 * static_cast<float>(sRad));
+    }
+    smoothingBins = normolizeVector<float>(smoothingBins, magnitude);
+    // раскладываем в корзины
+    sum[bin] += smoothingBins[radius];
+    for(size_t sRad = 1; sRad < radius + 1; ++sRad) {
+        sum[(bin - sRad + sum_size) % sum_size] += smoothingBins[SMOOTHING_RADIUS_BINS - sRad];
+        sum[(bin + sRad) % sum_size] += smoothingBins[SMOOTHING_RADIUS_BINS + sRad];
+    }
+}
+
 void phg::SIFT::detectAndCompute(const cv::Mat &originalImg, std::vector<cv::KeyPoint> &kps, cv::Mat &desc) {
     // используйте дебаг в файлы как можно больше, это очень удобно и потраченное время окупается крайне сильно,
     // ведь пролистывать через окошки показывающие картинки долго, и по ним нельзя проматывать назад, а по файлам - можно
@@ -203,7 +234,7 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
     std::vector<std::vector<float>> pointsDesc;
 
     // 3.1 Local extrema detection
-    #pragma omp parallel // запустили каждый вычислительный поток процессора
+//    #pragma omp parallel // запустили каждый вычислительный поток процессора
     {
         // каждый поток будет складировать свои точки в свой личный вектор (чтобы не было гонок и не были нужны точки синхронизации)
         std::vector<cv::KeyPoint> thread_points;
@@ -218,7 +249,7 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
                 const cv::Mat DoGs[3] = {prev, cur, next};
 
                 // теперь каждый поток обработает свой кусок картинки 
-                #pragma omp for
+//                #pragma omp for
                 for (ptrdiff_t j = 1; j < cur.rows - 1; ++j) {
                     for (ptrdiff_t i = 1; i + 1 < cur.cols; ++i) {
                         bool is_max = true;
@@ -317,7 +348,7 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
         }
 
         // в критической секции объединяем все массивы детектированных точек
-        #pragma omp critical
+//        #pragma omp critical
         {
             keyPoints.insert(keyPoints.end(), thread_points.begin(), thread_points.end());
             pointsDesc.insert(pointsDesc.end(), thread_descriptors.begin(), thread_descriptors.end());
@@ -353,7 +384,7 @@ bool phg::SIFT::buildLocalOrientationHists(const cv::Mat &img, size_t i, size_t 
             static_assert(360 % ORIENTATION_NHISTS == 0, "Inappropriate bins number!");
             size_t bin =  static_cast<size_t>(floor(orientation * ORIENTATION_NHISTS / 360));
             rassert(bin < ORIENTATION_NHISTS, 361236315613);
-            // на расстоянии i от центра будем ставить коэффициент 2^(-2i), а потом всё нормализуем
+//            smoothingBin(sum, bin, magnitude, SMOOTHING_RADIUS_BINS, ORIENTATION_NHISTS);
             std::vector<float> smoothingBins;
             smoothingBins.resize(SMOOTHING_RADIUS_BINS * 2 + 1);
             smoothingBins[SMOOTHING_RADIUS_BINS] = magnitude;
@@ -361,7 +392,7 @@ bool phg::SIFT::buildLocalOrientationHists(const cv::Mat &img, size_t i, size_t 
                 smoothingBins[SMOOTHING_RADIUS_BINS - sRad] = magnitude * pow(2, -2.0 * static_cast<float>(sRad));
                 smoothingBins[SMOOTHING_RADIUS_BINS + sRad] = magnitude * pow(2, -2.0 * static_cast<float>(sRad));
             }
-            smoothingBins = normolizeVetor<float>(smoothingBins, magnitude);
+            smoothingBins = normolizeVector<float>(smoothingBins, magnitude);
             // раскладываем в корзины
             sum[bin] += smoothingBins[SMOOTHING_RADIUS_BINS];
             for(size_t sRad = 1; sRad < SMOOTHING_RADIUS_BINS + 1; ++sRad) {
@@ -420,9 +451,10 @@ bool phg::SIFT::buildDescriptor(const cv::Mat &img, float px, float py, double d
                     }
                 }
             }
-            descriptor = normolizeVetor<float>(descriptor, 1.0f);
-
+            normolize(sum, DESCRIPTOR_NBINS, 100.0f); // страннно после нормализации увеличилась differentiability
             float *votes = &(descriptor[(hstj * DESCRIPTOR_SIZE + hsti) * DESCRIPTOR_NBINS]); // нашли где будут лежать корзины нашей гистограммы
+            // Нормализация
+//            sum = normolizeVetor<float>(sum, 100.0f); //странно, но после такого действия очень сильно подскачила differentiability в некоторых тестах
             for (int bin = 0; bin < DESCRIPTOR_NBINS; ++bin) {
                 votes[bin] = sum[bin];
             }
