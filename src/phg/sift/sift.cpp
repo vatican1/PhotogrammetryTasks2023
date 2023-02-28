@@ -328,9 +328,8 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
                             float value = votes[bin];
                             float nextValue = votes[(bin + 1) % ORIENTATION_NHISTS];
                             if (value > prevValue && value > nextValue && votes[bin] > biggestVote * ORIENTATION_VOTES_PEAK_RATIO) {
-                                // TODO добавьте уточнение угла наклона - может помочь определенная выше функция parabolaFitting(float x0, float x1, float x2)
-//                                parabolaFitting(float x0, float x1, float x2);
-                                kp.angle = (bin + 0.5) * (360.0 / ORIENTATION_NHISTS);
+                                double shift = parabolaFitting(float x0, float x1, float x2);
+                                kp.angle = shift + 0.5) * (360.0 / ORIENTATION_NHISTS);
                                 rassert(kp.angle >= 0.0 && kp.angle <= 360.0, 123512412412);
                                 
                                 std::vector<float> descriptor;
